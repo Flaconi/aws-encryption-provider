@@ -1,0 +1,109 @@
+---
+
+# -------------------------------------------------------------------------------------------------
+# Job Name
+# -------------------------------------------------------------------------------------------------
+name: build_deploy
+
+
+# -------------------------------------------------------------------------------------------------
+# When to run
+# -------------------------------------------------------------------------------------------------
+on:
+  push:
+    branches:
+    tags:
+      - 'v*'
+  release:
+    types: [released]
+
+
+# -------------------------------------------------------------------------------------------------
+# What to run
+# -------------------------------------------------------------------------------------------------
+jobs:
+  build_deploy:
+    name: "docker build and publish"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: False
+
+
+    steps:
+      # ------------------------------------------------------------
+      # Checkout repository
+      # ------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      # ------------------------------------------------------------
+      # Set Variables
+      # ------------------------------------------------------------
+      - name: Set Variables
+        id: vars
+        run: |
+          REPO='flaconi'
+
+          # Output for debugging
+          echo "REPO=${REPO}"
+
+          # Store GitHub Action env vars
+          echo "REPO=${REPO}"     >> "${GITHUB_ENV}"
+
+      # ------------------------------------------------------------
+      # Docker Build
+      # ------------------------------------------------------------
+      - name: Docker Build
+        run: |
+          retry() {
+            for n in $(seq ${RETRIES}); do
+              echo "[${n}/${RETRIES}] ${*}";
+              if eval "${*}"; then
+                echo "[SUCC] ${n}/${RETRIES}";
+                return 0;
+              fi;
+              sleep 2;
+              echo "[FAIL] ${n}/${RETRIES}";
+            done;
+            return 1;
+          }
+          retry make build-docker TAG=${{ github.ref_name }} REPO=${REPO}
+        env:
+          RETRIES: 20
+
+
+      # ------------------------------------------------------------
+      # Deploy
+      # ------------------------------------------------------------
+      - name: Publish images (only repo owner)
+        run: |
+          retry() {
+            for n in $(seq ${RETRIES}); do
+              echo "[${n}/${RETRIES}] ${*}";
+              if eval "${*}"; then
+                echo "[SUCC] ${n}/${RETRIES}";
+                return 0;
+              fi;
+              sleep ${PAUSE};
+              echo "[FAIL] ${n}/${RETRIES}";
+            done;
+            return 1;
+          }
+
+          # Login and Push
+          retry make login DOCKER_USER=${{ secrets.DOCKER_USER }} DOCKER_PASS=${{ secrets.DOCKER_PASS }}
+          retry make push TAG=${{ github.ref_name }} REPO=${REPO}
+        env:
+          RETRIES: 20
+          PAUSE: 10
+        # https://help.github.com/en/github/automating-your-workflow-with-github-actions/contexts-and-expression-syntax-for-github-actions#functions
+        if: github.event.pull_request.base.repo.id == github.event.pull_request.head.repo.id
+            && (
+              (github.event_name == 'schedule' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')))
+              ||
+              (github.event_name == 'push'     && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')))
+              ||
+              (github.event_name == 'push'     && startsWith(github.ref, 'refs/heads/release-'))
+            )
