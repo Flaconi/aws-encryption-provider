@@ -6,5 +6,4 @@ go:
 sudo: false
 
 script:
-  - hack/check-vendor.sh
   - make lint test build-server
