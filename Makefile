@@ -2,7 +2,7 @@ REPO?=gcr.io/must-override
 IMAGE?=aws-encryption-provider
 TAG?=0.0.1
 
-.PHONY: lint test build-docker build-server build-client
+.PHONY: lint test build-docker build-server build-client login push
 
 lint:
 	echo "Verifying go mod tidy"
@@ -31,3 +31,15 @@ build-server:
 build-client:
 	go build -mod vendor -ldflags "-w -s" -o bin/grpcclient cmd/client/main.go
 
+login:
+ifndef DOCKER_USER
+	$(error DOCKER_USER must either be set via environment or parsed as argument)
+endif
+ifndef DOCKER_PASS
+	$(error DOCKER_PASS must either be set via environment or parsed as argument)
+endif
+	@yes | docker login --username $(DOCKER_USER) --password $(DOCKER_PASS)
+
+push:
+	docker push ${REPO}/$(IMAGE):latest
+	docker push ${REPO}/$(IMAGE):$(TAG)
